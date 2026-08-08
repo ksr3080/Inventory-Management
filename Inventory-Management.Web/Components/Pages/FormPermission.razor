@@ -1,0 +1,437 @@
+@page "/role/form-permission/{RoleId:int}"
+@using Inventory_Management.Interface
+@using Inventory_Management.Service
+@using Inventory_Management.Shared.DTOs.Forms
+@using Inventory_Management.Shared.DTOs.Roles
+@using Inventory_Management.Shared.DTOs.FormBusinessRules
+@using Inventory_Management.Shared.DTOs.FormRulesPermission
+@using Inventory_Management.Shared.Helper.FormAccessCode
+@inject IJSRuntime JS
+@inject NavigationManager NavigationManager
+@inject IRoleService RoleService
+@inject IFormService FormService
+@inject IFormBusinessRulesService FormBusinessRulesService
+@inject IFormRulesPermissionService FormRulesPermissionService
+@inject SessionContext SessionContext
+
+<PageTitle>Form Permission</PageTitle>
+
+@if (!CanView())
+{
+    <div class="container-fluid mt-5">
+        <div class="row justify-content-center">
+            <div class="col-md-6">
+                <div class="alert alert-danger text-center shadow-sm">
+                    <h4>Access Denied</h4>
+                    <p>You don't have permission to access this page.</p>
+                    <button class="btn btn-primary" @onclick='() => NavigationManager.NavigateTo("/role")'>Back to Roles</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+else if (isLoading)
+{
+    <div class="text-center mt-5">
+        <Spinner Type="SpinnerType.Border" />
+    </div>
+}
+else
+{
+    <div class="container-fluid">
+        @* Page Title *@
+        <div class="row mb-3">
+            <div class="col">
+                <h4 class="fw-normal">
+                    Page level permissions for this role: <strong class="fw-bold text-dark">@roleName</strong>
+                </h4>
+            </div>
+        </div>
+
+        @* Messages *@
+        @if (!string.IsNullOrEmpty(successMessage))
+        {
+            <div class="alert alert-success alert-dismissible fade show" role="alert">
+                <i class="bi bi-check-circle-fill me-2"></i>@successMessage
+                <button type="button" class="btn-close" @onclick="@(() => successMessage = string.Empty)"></button>
+            </div>
+        }
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                <i class="bi bi-exclamation-triangle-fill me-2"></i>@errorMessage
+                <button type="button" class="btn-close" @onclick="@(() => errorMessage = string.Empty)"></button>
+            </div>
+        }
+
+        @if (!permissionGroups.Any())
+        {
+            <div class="alert alert-warning text-center my-4 py-3 shadow-sm">
+                <i class="bi bi-exclamation-circle me-2"></i>No Data Found
+            </div>
+            <div class="d-flex gap-2 mt-4 mb-4">
+                <Button Color="ButtonColor.Secondary" @onclick="GoBack">
+                    <Icon Name="IconName.ArrowLeft" /> Back to Roles
+                </Button>
+            </div>
+        }
+        else
+        {
+            @* Permission Matrix Table matching exact layout design *@
+            <div class="table-responsive">
+                <table class="table table-bordered align-middle mb-0" style="border-color: #dee2e6;">
+                    <tbody>
+                        @foreach (var group in permissionGroups)
+                        {
+                            @* Parent Menu Row *@
+                            <tr>
+                                <td style="width: 250px; background-color: #157bd3; color: #ffffff; vertical-align: middle;" class="py-2 px-3">
+                                    <div class="d-flex align-items-center">
+                                        @if (group.Children.Any())
+                                        {
+                                            <button type="button" class="btn btn-sm btn-link text-white text-decoration-none p-0 me-2 shadow-none"
+                                                    @onclick="() => group.IsExpanded = !group.IsExpanded"
+                                                    title="Toggle Sub-menu">
+                                                <i class="bi @(group.IsExpanded ? "bi-chevron-down" : "bi-chevron-right") fw-bold" style="font-size: 1rem;"></i>
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            <span class="me-3"></span>
+                                        }
+                                        <div class="form-check mb-0">
+                                            <input type="checkbox" class="form-check-input"
+                                                   id="parent-@group.Form.Id"
+                                                   checked="@IsAllCheckedInRow(group.RuleCheckboxes)"
+                                                   @onchange="(e) => ToggleAllInRow(group.RuleCheckboxes, (bool)(e.Value ?? false))" />
+                                            <label class="form-check-label fw-bold text-white mb-0" for="parent-@group.Form.Id" style="cursor: pointer;">
+                                                @GetDisplayName(group.Form)
+                                            </label>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td style="background-color: #ffffff; vertical-align: middle;" class="py-2 px-3">
+                                    <div class="d-flex flex-wrap align-items-center gap-4">
+                                        @foreach (var cb in group.RuleCheckboxes)
+                                        {
+                                            <div class="form-check mb-0">
+                                                <input type="checkbox" class="form-check-input"
+                                                       id="cb-@group.Form.Id-@cb.RuleId"
+                                                       @bind="cb.IsChecked" />
+                                                <label class="form-check-label fw-bold text-dark mb-0" for="cb-@group.Form.Id-@cb.RuleId" style="font-size: 0.88rem; cursor: pointer;">
+                                                    @cb.RulesCode
+                                                </label>
+                                            </div>
+                                        }
+                                    </div>
+                                </td>
+                            </tr>
+
+                            @* Child Form Rows *@
+                            if (group.IsExpanded)
+                            {
+                                @foreach (var child in group.Children)
+                                {
+                                    <tr>
+                                        <td style="width: 250px; background-color: #f4f6f8; color: #212529; vertical-align: middle; padding-left: 36px;" class="py-2 px-3">
+                                            <div class="d-flex align-items-center">
+                                                <span class="text-muted me-2" style="font-size: 0.9rem;">↳</span>
+                                                <div class="form-check mb-0">
+                                                    <input type="checkbox" class="form-check-input"
+                                                           id="child-@child.Form.Id"
+                                                           checked="@IsAllCheckedInRow(child.RuleCheckboxes)"
+                                                           @onchange="(e) => ToggleAllInRow(child.RuleCheckboxes, (bool)(e.Value ?? false))" />
+                                                    <label class="form-check-label text-dark mb-0" for="child-@child.Form.Id" style="cursor: pointer;">
+                                                        @GetDisplayName(child.Form)
+                                                    </label>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td style="background-color: #ffffff; vertical-align: middle;" class="py-2 px-3">
+                                            <div class="d-flex flex-wrap align-items-center gap-4">
+                                                @foreach (var cb in child.RuleCheckboxes)
+                                                {
+                                                    <div class="form-check mb-0">
+                                                        <input type="checkbox" class="form-check-input"
+                                                               id="cb-@child.Form.Id-@cb.RuleId"
+                                                               @bind="cb.IsChecked" />
+                                                        <label class="form-check-label fw-bold text-dark mb-0" for="cb-@child.Form.Id-@cb.RuleId" style="font-size: 0.88rem; cursor: pointer;">
+                                                            @cb.RulesCode
+                                                        </label>
+                                                    </div>
+                                                }
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            @* Save / Back Buttons *@
+            <div class="d-flex gap-2 mt-4 mb-4">
+                @if (CanEdit())
+                {
+                    <Button Color="ButtonColor.Primary" @onclick="SavePermissions" Loading="isSaving" LoadingText="Saving...">
+                        <Icon Name="IconName.Save" /> Save Permissions
+                    </Button>
+                }
+                <Button Color="ButtonColor.Secondary" @onclick="GoBack">
+                    <Icon Name="IconName.ArrowLeft" /> Back to Roles
+                </Button>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private bool CanView() => SessionContext.HasPermission(FormAccessCode.FORMPERMISSION, Form_BusinessRules.VIEW);
+    private bool CanEdit() => SessionContext.HasPermission(FormAccessCode.FORMPERMISSION, Form_BusinessRules.EDIT) || SessionContext.HasPermission(FormAccessCode.FORMPERMISSION, Form_BusinessRules.ADD);
+    [Parameter]
+    public int RoleId { get; set; }
+
+    private bool isLoading = true;
+    private bool isSaving = false;
+    private string roleName = string.Empty;
+    private string successMessage = string.Empty;
+    private string errorMessage = string.Empty;
+
+    // Data from API
+    private List<GetFormDTO> allForms = new();
+    private List<GetFormBusinessRulesDTO> allRules = new();
+    private List<GetFormRulesPermissionDTO> existingPermissions = new();
+
+    // UI model
+    private List<PermissionGroup> permissionGroups = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        isLoading = true;
+        await base.OnInitializedAsync();
+        await LoadAllData();
+        BuildPermissionMatrix();
+        isLoading = false;
+    }
+
+    private async Task LoadAllData()
+    {
+        try
+        {
+            // Load role name
+            var roles = await RoleService.GetRolesAsync();
+            var role = roles.FirstOrDefault(r => r.Id == RoleId);
+            roleName = role?.RoleName ?? "Unknown";
+
+            // Load all forms
+            allForms = (await FormService.GetFormsAsync())
+                .Where(f => !f.IsDeleted && f.IsActive)
+                .OrderBy(f => f.DisplayIndex)
+                .ToList();
+
+
+            // Load all business rules (permission types)
+            allRules = (await FormBusinessRulesService.GetFormBusinessRulesAsync())
+                .Where(r => !r.IsDeleted && r.IsActive)
+                .ToList();
+
+            // Load existing permissions for this role
+            existingPermissions = (await FormRulesPermissionService.GetByRoleIdAsync(RoleId)).ToList();
+        }
+        catch (Exception)
+        {
+            errorMessage = "Failed to load data. Please try again.";
+        }
+    }
+
+    private void BuildPermissionMatrix()
+    {
+        permissionGroups = new List<PermissionGroup>();
+
+        // Find parent forms (menus) where ParentId == 0 or ParentId == null
+        var parentForms = allForms
+            .Where(f => f.ParentId == null || f.ParentId == 0)
+            .OrderBy(f => f.DisplayIndex)
+            .ToList();
+
+        var processedFormIds = new HashSet<int>();
+
+        foreach (var parent in parentForms)
+        {
+            processedFormIds.Add(parent.Id);
+
+            var parentGroup = new PermissionGroup
+            {
+                Form = parent,
+                RuleCheckboxes = BuildRuleCheckboxes(parent.Id),
+                Children = new List<PermissionFormRow>()
+            };
+
+            // Child forms under this parent
+            var children = allForms
+                .Where(f => f.ParentId == parent.Id)
+                .OrderBy(f => f.DisplayIndex)
+                .ToList();
+
+            foreach (var child in children)
+            {
+                processedFormIds.Add(child.Id);
+
+                parentGroup.Children.Add(new PermissionFormRow
+                {
+                    Form = child,
+                    RuleCheckboxes = BuildRuleCheckboxes(child.Id)
+                });
+            }
+
+            permissionGroups.Add(parentGroup);
+        }
+
+        // Remaining forms not linked to a parent
+        var remainingForms = allForms.Where(f => !processedFormIds.Contains(f.Id)).ToList();
+        foreach (var form in remainingForms)
+        {
+            permissionGroups.Add(new PermissionGroup
+            {
+                Form = form,
+                RuleCheckboxes = BuildRuleCheckboxes(form.Id),
+                Children = new List<PermissionFormRow>()
+            });
+        }
+    }
+
+    private List<RuleCheckbox> BuildRuleCheckboxes(int formId)
+    {
+        var rulesForForm = allRules.Where(r => r.FormId == formId).ToList();
+        var checkboxes = new List<RuleCheckbox>();
+
+        foreach (var rule in rulesForForm)
+        {
+            var isChecked = existingPermissions.Any(p =>
+                p.FormId == formId &&
+                p.FormRulesId == rule.Id &&
+                p.IsAllowRules);
+
+            checkboxes.Add(new RuleCheckbox
+            {
+                RuleId = rule.Id,
+                FormId = formId,
+                RulesCode = rule.RulesCode ?? rule.Rules ?? string.Empty,
+                IsChecked = isChecked
+            });
+        }
+
+        return checkboxes;
+    }
+
+    private string GetDisplayName(GetFormDTO form)
+    {
+        if (!string.IsNullOrWhiteSpace(form.FormName)) return form.FormName;
+        if (!string.IsNullOrWhiteSpace(form.FormCode)) return form.FormCode;
+        return $"Form #{form.Id}";
+    }
+
+    private bool IsAllCheckedInRow(List<RuleCheckbox> checkboxes)
+    {
+        return checkboxes.Any() && checkboxes.All(c => c.IsChecked);
+    }
+
+    private void ToggleAllInRow(List<RuleCheckbox> checkboxes, bool value)
+    {
+        foreach (var cb in checkboxes)
+        {
+            cb.IsChecked = value;
+        }
+    }
+
+    private async Task SavePermissions()
+    {
+        if (isSaving) return;
+
+        try
+        {
+            isSaving = true;
+            errorMessage = string.Empty;
+            successMessage = string.Empty;
+
+            // Collect all checked permissions
+            var checkedItems = new List<SavePermissionItemDTO>();
+
+            foreach (var group in permissionGroups)
+            {
+                // Parent row checkboxes
+                foreach (var cb in group.RuleCheckboxes.Where(c => c.IsChecked))
+                {
+                    checkedItems.Add(new SavePermissionItemDTO
+                    {
+                        FormRulesId = cb.RuleId,
+                        FormId = cb.FormId,
+                        IsAllowRules = true
+                    });
+                }
+
+                // Child row checkboxes
+                foreach (var child in group.Children)
+                {
+                    foreach (var cb in child.RuleCheckboxes.Where(c => c.IsChecked))
+                    {
+                        checkedItems.Add(new SavePermissionItemDTO
+                        {
+                            FormRulesId = cb.RuleId,
+                            FormId = cb.FormId,
+                            IsAllowRules = true
+                        });
+                    }
+                }
+            }
+
+            var dto = new SaveFormRulesPermissionDTO
+            {
+                RoleId = RoleId,
+                CreatedBy = SessionContext.UserId,
+                Permissions = checkedItems
+            };
+
+            await FormRulesPermissionService.SavePermissionsAsync(dto);
+            successMessage = "Permissions saved successfully!";
+            NavigationManager.NavigateTo("/role");
+        }
+        catch (Exception)
+        {
+            errorMessage = "Failed to save permissions. Please try again.";
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private void GoBack()
+    {
+        NavigationManager.NavigateTo("/role");
+    }
+
+    // UI models
+    private class PermissionGroup
+    {
+        public GetFormDTO Form { get; set; } = default!;
+        public List<RuleCheckbox> RuleCheckboxes { get; set; } = new();
+        public List<PermissionFormRow> Children { get; set; } = new();
+        public bool IsExpanded { get; set; } = true;
+    }
+
+    private class PermissionFormRow
+    {
+        public GetFormDTO Form { get; set; } = default!;
+        public List<RuleCheckbox> RuleCheckboxes { get; set; } = new();
+    }
+
+    private class RuleCheckbox
+    {
+        public int RuleId { get; set; }
+        public int FormId { get; set; }
+        public string RulesCode { get; set; } = string.Empty;
+        public bool IsChecked { get; set; }
+    }
+}

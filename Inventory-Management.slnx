@@ -1,0 +1,10 @@
+<Solution>
+  <Project Path="Inventory-Management.Api/Inventory-Management.Api.csproj" Id="2e57457d-0fe4-4a2d-835d-5a777325b56f" />
+  <Project Path="Inventory-Management.Application/Inventory-Management.Application.csproj" Id="d111ddaa-580d-4d74-9c4a-27ecca4f93ef" />
+  <Project Path="Inventory-Management.Domain/Inventory-Management.Domain.csproj" Id="2e83a2b9-54b8-4948-b3ac-0b7a4be811ea" />
+  <Project Path="Inventory-Management.Infrastructure/Inventory-Management.Infrastructure.csproj" Id="1e602070-477f-4f96-b3ac-221dcd9daf36" />
+  <Project Path="Inventory-Management.IntegrationTests/Inventory-Management.IntegrationTests.csproj" Id="47dc6863-3860-4c25-a38e-bc9e0ddde862" />
+  <Project Path="Inventory-Management.Shared/Inventory-Management.Shared.csproj" Id="dac192db-19d2-453e-ba4b-843d9eba1b24" />
+  <Project Path="Inventory-Management.UnitTests/Inventory-Management.UnitTests.csproj" Id="5665e378-9903-448a-a337-801cb16f84c4" />
+  <Project Path="Inventory-Management.Web/Inventory-Management.Web.csproj" />
+</Solution>

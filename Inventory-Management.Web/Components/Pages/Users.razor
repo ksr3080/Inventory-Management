@@ -1,0 +1,822 @@
+@page "/users"
+@using Inventory_Management.Interface
+@using Inventory_Management.Service
+@using Inventory_Management.Shared.DTOs.Roles
+@using Inventory_Management.Shared.DTOs.Users
+@using Inventory_Management.Shared.Helper.FormAccessCode
+@using Inventory_Management.ViewModels
+@inject IJSRuntime JS
+@inject NavigationManager NavigationManager
+@inject IUserService UserService
+@inject IRoleService RoleService
+@inject SessionContext SessionContext
+
+<PageTitle>Users</PageTitle>
+
+@if (!CanView(Route))
+{
+    <div class="container-fluid mt-5">
+        <div class="row justify-content-center">
+            <div class="col-md-6">
+                <div class="alert alert-danger text-center">
+                    <h4>Access Denied</h4>
+                    <p>You don't have permission to access this page.</p>
+                    <Button Color="ButtonColor.Primary" @onclick="GoHome">
+                        Go to Home
+                    </Button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+else
+{
+    <div class="container-fluid">
+        <div class="row mb-3">
+            <div class="col">
+                <h3><Icon Name="IconName.People" /> Users</h3>
+            </div>
+            <div class="col-auto">
+                <span title="@(!CanCreate(Route) ? "You do not have permission to perform this action." : "")">
+                    <Button Color="ButtonColor.Primary" @onclick="ShowAddModal" Disabled="@(!CanCreate(Route))">
+                        <Icon Name="IconName.Plus" /> Add User
+                    </Button>
+                </span>
+            </div>
+        </div>
+
+        @if (isLoading)
+        {
+            <div class="text-center">
+                <Spinner Type="SpinnerType.Border" />
+            </div>
+        }
+        else
+        {
+            <Grid TItem="UsersModel"
+                  Data="@users"
+                  Class="table table-hover table-bordered table-striped"
+                  AllowPaging="true"
+                  PageSize="10"
+                  Responsive=true
+                  AllowFiltering="true"
+                  AllowSorting="true"
+                  @ref="userGrid">
+
+                <GridColumn TItem="UsersModel" HeaderText="No" Filterable=false>
+                    @(users.IndexOf(context) + 1)
+                </GridColumn>
+
+                <GridColumn TItem="UsersModel" HeaderText="Name" Filterable=false>
+                    @($"{context.FirstName} {context.LastName}")
+                </GridColumn>
+
+                <GridColumn TItem="UsersModel" HeaderText="Username" PropertyName="UserName" SortString="UserName" SortKeySelector="item => item.UserName" FilterTextboxWidth="80">
+                    @context.UserName
+                </GridColumn>
+
+                <GridColumn TItem="UsersModel" HeaderText="Email" PropertyName="Email" SortString="Email" SortKeySelector="item => item.Email" FilterTextboxWidth="80">
+                    @context.Email
+                </GridColumn>
+
+                <GridColumn TItem="UsersModel" HeaderText="Phone" PropertyName="ContactNo" SortString="ContactNo" SortKeySelector="item => item.ContactNo" FilterTextboxWidth="80">
+                    @context.ContactNo
+                </GridColumn>
+
+                <GridColumn TItem="UsersModel" HeaderText="Role" Filterable=false>
+                    @{
+                        var roleName = roles.FirstOrDefault(r => r.Id == context.RoleId)?.Name ?? "-";
+                    }
+                    <Badge Color="BadgeColor.Info">@roleName</Badge>
+                </GridColumn>
+
+                <GridColumn TItem="UsersModel" HeaderText="Status" PropertyName="IsActive" SortString="IsActive" SortKeySelector="item => item.IsActive" Sortable=false>
+                    @if (context.IsActive)
+                    {
+                        <Badge Color="BadgeColor.Success">Active</Badge>
+                    }
+                    else
+                    {
+                        <Badge Color="BadgeColor.Danger">Inactive</Badge>
+                    }
+                </GridColumn>
+
+                <GridColumn TItem="UsersModel" HeaderText="Actions" Filterable=false>
+                    <div class="d-flex gap-1 justify-content-start">
+                        <span title="@(!CanEdit(Route) ? "You do not have permission to perform this action." : "")">
+                            <Button class="text-nowrap" Color="ButtonColor.Warning" Size="ButtonSize.Small"
+                                    Disabled="@(!CanEdit(Route))"
+                                    @onclick="() => ShowEditModal(context)">
+                                <Icon Name="IconName.PencilSquare" /> Edit
+                            </Button>
+                        </span>
+                        <span title="@(!CanDelete(Route) ? "You do not have permission to perform this action." : "")">
+                            <LoadingButton Class="text-nowrap" Color="ButtonColor.Danger" Size="ButtonSize.Small"
+                                    Disabled="@(!CanDelete(Route))"
+                                    OnClick="() => DeleteUser(context.Id)">
+                                <Icon Name="IconName.Trash" /> Delete
+                            </LoadingButton>
+                        </span>
+                    </div>
+                </GridColumn>
+            </Grid>
+        }
+    </div>
+
+    <!-- MODAL -->
+    <Modal @ref="modal" Title="@modalTitle" Size="ModalSize.Large" UseStaticBackdrop>
+        <BodyTemplate>
+            <div>
+                @if (!string.IsNullOrEmpty(errorMessage))
+                {
+                    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                        <i class="bi bi-exclamation-triangle-fill me-2"></i>@errorMessage
+                        <button type="button" class="btn-close" @onclick="@(() => errorMessage = "")"></button>
+                    </div>
+                }
+            </div>
+            @if (editContext != null)
+            {
+                <EditForm EditContext="@editContext" OnValidSubmit="SaveUser" autocomplete="off">
+                    <!-- Browser autofill trap fields -->
+                    <input type="text" style="display:none" autocomplete="username" />
+                    <input type="password" style="display:none" autocomplete="new-password" />
+                    <DataAnnotationsValidator />
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">First Name<span class="text-danger">*</span></label>
+                            <InputText class="form-control"
+                                       placeholder="Enter first name"
+                                       @bind-Value="UsersModel.FirstName"
+                                       @oninput="HandleFirstNameChange" />
+
+                            <ValidationMessage For="@(() => UsersModel.FirstName)" />
+                        </div>
+
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Last Name<span class="text-danger">*</span></label>
+                            <InputText class="form-control"
+                                       placeholder="Enter last name"
+                                       @bind-Value="UsersModel.LastName"
+                                       @oninput="HandleLastNameChange" />
+                            <ValidationMessage For="@(() => UsersModel.LastName)" />
+                        </div>
+
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Username<span class="text-danger">*</span></label>
+                            <InputText class="form-control"
+                                       placeholder="Enter username"
+                                       autocomplete="off"
+                                       @bind-Value="UsersModel.UserName"
+                                       @oninput="HandleUsernameChange" />
+                            <ValidationMessage For="@(() => UsersModel.UserName)" />
+                        </div>
+
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Email<span class="text-danger">*</span></label>
+                            <InputText class="form-control"
+                                       placeholder="Enter email address"
+                                       @bind-Value="UsersModel.Email"
+                                       @oninput="HandleEmailChange" />
+                            <ValidationMessage For="@(() => UsersModel.Email)" />
+                        </div>
+
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Phone<span class="text-danger">*</span></label>
+                            <InputText class="form-control"
+                                       placeholder="Enter phone number"
+                                       @bind-Value="UsersModel.ContactNo"
+                                       @oninput="HandlePhoneChange" />
+                            <ValidationMessage For="@(() => UsersModel.ContactNo)" />
+                        </div>
+
+                        <div class="col-md-6 mb-3">
+                        <label class="form-label">Role<span class="text-danger">*</span></label>
+                        <select class="form-select" value="@UsersModel.RoleId" @onchange="async (e) => { 
+                            if (int.TryParse(e.Value?.ToString(), out int val)) {
+                                await HandleRole((val, roles.FirstOrDefault(r => r.Id == val)?.Name ?? string.Empty));
+                            }
+                        }">
+                            <option value="0">-- Select Role --</option>
+                            @foreach (var role in roles)
+                            {
+                                <option value="@role.Id">@role.Name</option>
+                            }
+                        </select>
+                        <ValidationMessage For="@(() => UsersModel.RoleId)" />
+                    </div>
+
+                        <!-- PASSWORD SECTION -->
+                        @if (UsersModel.Id == 0)
+                        {
+                            <!-- ADD MODE: always show password fields -->
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">
+                                    Password <span class="text-danger">*</span>
+                                </label>
+                                <div class="input-group">
+                                    <span class="input-group-text">
+                                        <Icon Name="IconName.Lock" />
+                                    </span>
+                                    <InputText @bind-Value="UsersModel.Password"
+                                               class="form-control"
+                                               placeholder="Enter password"
+                                               type="@passwordInputType"
+                                               @oninput="HandlePasswordChange" />
+                                    <button class="btn btn-outline-secondary" type="button"
+                                            @onclick="TogglePasswordVisibility">
+                                        <i class="@passwordToggleIcon"></i>
+                                    </button>
+                                </div>
+                                <ValidationMessage For="@(() => UsersModel.Password)" class="text-danger small" />
+                            </div>
+
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">
+                                    Confirm Password <span class="text-danger">*</span>
+                                </label>
+                                <div class="input-group">
+                                    <span class="input-group-text">
+                                        <Icon Name="IconName.Lock" />
+                                    </span>
+                                    <InputText @bind-Value="UsersModel.ConfirmPassword"
+                                               class="form-control"
+                                               type="@confirmPasswordInputType"
+                                               placeholder="Confirm password"
+                                               @oninput="HandleConfirmPasswordChange" />
+                                    <button class="btn btn-outline-secondary" type="button"
+                                            @onclick="ToggleConformPasswordVisibility">
+                                        <i class="@confirmPasswordToggleIcon"></i>
+                                    </button>
+                                </div>
+                                <ValidationMessage For="@(() => UsersModel.ConfirmPassword)" class="text-danger small" />
+                            </div>
+                        }
+                        else if (CanResetPassword())
+                        {
+                            <!-- EDIT MODE: Reset Password checkbox (Admin / Super Admin only) -->
+                            <div class="col-12 mb-3">
+                                <div class="card border-warning">
+                                    <div class="card-body py-2 px-3">
+                                        <div class="form-check form-switch mb-0">
+                                            <input class="form-check-input" type="checkbox" role="switch"
+                                                   id="chkResetPassword"
+                                                   checked="@UsersModel.ResetPassword"
+                                                   @onchange="HandleResetPasswordToggle" />
+                                            <label class="form-check-label fw-semibold" for="chkResetPassword">
+                                                <Icon Name="IconName.KeyFill" />&nbsp;Do you want to reset password?
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            @if (UsersModel.ResetPassword)
+                            {
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">
+                                        New Password <span class="text-danger">*</span>
+                                    </label>
+                                    <div class="input-group">
+                                        <span class="input-group-text">
+                                            <Icon Name="IconName.Lock" />
+                                        </span>
+                                        <InputText @bind-Value="UsersModel.Password"
+                                                   class="form-control"
+                                                   placeholder="Enter new password"
+                                                   type="@passwordInputType"
+                                                   @oninput="HandlePasswordChange" />
+                                        <button class="btn btn-outline-secondary" type="button"
+                                                @onclick="TogglePasswordVisibility">
+                                            <i class="@passwordToggleIcon"></i>
+                                        </button>
+                                    </div>
+                                    <ValidationMessage For="@(() => UsersModel.Password)" class="text-danger small" />
+                                </div>
+
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">
+                                        Confirm New Password <span class="text-danger">*</span>
+                                    </label>
+                                    <div class="input-group">
+                                        <span class="input-group-text">
+                                            <Icon Name="IconName.Lock" />
+                                        </span>
+                                        <InputText @bind-Value="UsersModel.ConfirmPassword"
+                                                   class="form-control"
+                                                   type="@confirmPasswordInputType"
+                                                   placeholder="Confirm new password"
+                                                   @oninput="HandleConfirmPasswordChange" />
+                                        <button class="btn btn-outline-secondary" type="button"
+                                                @onclick="ToggleConformPasswordVisibility">
+                                            <i class="@confirmPasswordToggleIcon"></i>
+                                        </button>
+                                    </div>
+                                    <ValidationMessage For="@(() => UsersModel.ConfirmPassword)" class="text-danger small" />
+                                </div>
+                            }
+                        }
+                    </div>
+
+                    @if (UsersModel.Id > 0)
+                    {
+                        <div class="mb-3">
+                            <InputCheckbox @bind-Value="UsersModel.IsActive" /> Active
+                        </div>
+                    }
+
+                    <div class="text-end">
+                        <Button Color="ButtonColor.Secondary" @onclick="HideModal">Cancel</Button>
+                        <Button Color="ButtonColor.Primary" Type="ButtonType.Submit">Save</Button>
+                    </div>
+                </EditForm>
+            }
+        </BodyTemplate>
+    </Modal>
+}
+@code {
+    private bool isLoading = true;
+
+    private Modal modal = default!;
+    private string modalTitle = "Add User";
+    private string errorMessage = string.Empty;
+    private bool showPassword = false;
+    private bool showConformPassword = false;
+
+    private string passwordInputType => showPassword ? "text" : "password";
+    private string confirmPasswordInputType => showConformPassword ? "text" : "password";
+
+    private string passwordToggleIcon => showPassword ? "bi bi-eye-slash" : "bi bi-eye";
+    private string confirmPasswordToggleIcon => showConformPassword ? "bi bi-eye-slash" : "bi bi-eye";
+
+    private Grid<UsersModel> userGrid = default!;
+    private List<UsersModel> users = new();
+    private List<RoleModel> roles = new();
+
+    private UsersModel UsersModel = new();
+
+    private EditContext editContext = default!;
+    private ValidationMessageStore messageStore = default!;
+    private string Route = "/users";
+    private bool isSaveBtnLoading = false;
+    // ── Permission checks — fully dynamic, uses FormAccessCode + Form_BusinessRules ──
+    private bool CanView(string route) => SessionContext.HasPermission(FormAccessCode.USER, Form_BusinessRules.VIEW);
+    private bool CanCreate(string route) => SessionContext.HasPermission(FormAccessCode.USER, Form_BusinessRules.ADD);
+    private bool CanEdit(string route) => SessionContext.HasPermission(FormAccessCode.USER, Form_BusinessRules.EDIT);
+    private bool CanDelete(string route) => SessionContext.HasPermission(FormAccessCode.USER, Form_BusinessRules.DELETE);
+    private string CurrentUserId => SessionContext.UserId.ToString();
+    private string CurrentUserRoleId => SessionContext.RoleId.ToString();
+    private int CurrentCompanyId => SessionContext.CompanyId;
+
+    /// <summary>
+    /// Returns true only when the current user has Admin or Super Admin role
+    /// so only they see the 'Reset Password?' checkbox on the Edit modal.
+    /// </summary>
+    private bool CanResetPassword()
+    {
+        // RoleLevel 1 = Admin, 2 = Super Admin (adjust to match your actual role IDs)
+        var adminRoleLevels = new[] { 1, 2 };
+        var currentRole = roles.FirstOrDefault(r => r.Id.ToString() == CurrentUserRoleId);
+        return currentRole is not null && adminRoleLevels.Contains(currentRole.RoleLevel);
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await base.OnInitializedAsync();
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        isLoading = true;
+        try
+        {
+            // Load roles from API
+            var rolesFromApi = await RoleService.GetRolesAsync();
+            roles = rolesFromApi
+                .Where(r => r.IsActive)
+                .Select(r => new RoleModel
+                {
+                    Id = r.Id,
+                    Name = r.RoleName ?? string.Empty,
+                    RoleLevel = r.RoleLevel ?? 0,
+                    IsActive = r.IsActive
+                }).ToList();
+
+            // Load users
+            var result = await UserService.GetUsersAsync();
+            users = result.Select(u => new UsersModel
+            {
+                Id = u.Id,
+                FirstName = u.FirstName,
+                LastName = u.LastName,
+                UserName = string.IsNullOrWhiteSpace(u.UserName) ? $"{u.FirstName} {u.LastName}".Trim() : u.UserName,
+                Email = u.EmailId,
+                ContactNo = u.ContactNo ?? string.Empty,
+                IsActive = u.IsActive,
+                RoleId = u.RoleId
+            }).ToList();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Unable to load users: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void InitializeEditContext()
+    {
+        editContext = new EditContext(UsersModel);
+        messageStore = new ValidationMessageStore(editContext);
+    }
+
+    private async Task ShowAddModal()
+    {
+        modalTitle = "Add User";
+        errorMessage = string.Empty;
+        UsersModel = new UsersModel
+        {
+            IsActive = true,
+            CreatedBy = Convert.ToInt32(CurrentUserId)
+        };
+
+        InitializeEditContext();
+        await modal.ShowAsync();
+    }
+
+    private async Task ShowEditModal(UsersModel user)
+    {
+        modalTitle = "Edit User";
+        errorMessage = string.Empty;
+        showPassword = false;
+        showConformPassword = false;
+        UsersModel = new UsersModel
+        {
+            Id = user.Id,
+            FirstName = user.FirstName,
+            LastName = user.LastName,
+            UserName = user.UserName,
+            Email = user.Email,
+            ContactNo = user.ContactNo,
+            CreatedBy = user.CreatedBy,
+            RoleId = user.RoleId,
+            IsActive = user.IsActive,
+            Password = null,
+            ConfirmPassword = null,
+            ResetPassword = false,
+            UpdatedBy = Convert.ToInt32(CurrentUserId)
+        };
+        InitializeEditContext();
+        await modal.ShowAsync();
+    }
+
+    private async Task SaveUser()
+    {
+        if (isSaveBtnLoading) return;
+        try
+        {
+            isSaveBtnLoading = true;
+            if (!editContext.Validate())
+                return;
+
+            await ValidateAllFieldsAsync();
+            if (editContext.GetValidationMessages().Any())
+                return;
+
+            int savedUserId;
+
+            if (UsersModel.Id > 0)
+            {
+                // Only pass the password if the admin explicitly chose to reset it
+                string? newPassword = (UsersModel.ResetPassword && CanResetPassword())
+                    ? UsersModel.Password
+                    : null;
+
+                var updateDto = new UpdateUserDTO
+                {
+                    Id = UsersModel.Id,
+                    FirstName = UsersModel.FirstName,
+                    LastName = UsersModel.LastName,
+                    EmailId = UsersModel.Email,
+                    Password = newPassword,
+                    ContactNo = UsersModel.ContactNo,
+                    IsLoginAllowed = true,
+                    UpdatedBy = SessionContext.UserId
+                };
+                await UserService.UpdateUserAsync(updateDto);
+                savedUserId = UsersModel.Id;
+            }
+            else
+            {
+                var createDto = new CreateUserDTO
+                {
+                    FirstName = UsersModel.FirstName,
+                    LastName = UsersModel.LastName,
+                    EmailId = UsersModel.Email,
+                    Password = UsersModel.Password ?? string.Empty,
+                    ContactNo = UsersModel.ContactNo,
+                    IsLoginAllowed = true,
+                    CreatedBy = SessionContext.UserId
+                };
+                savedUserId = await UserService.CreateUserAndGetIdAsync(createDto);
+            }
+
+            // Assign the selected role into UsersInRole with the current company
+            if (UsersModel.RoleId > 0)
+            {
+                var assignDto = new AssignUserRoleDTO
+                {
+                    UserId = savedUserId,
+                    RoleId = UsersModel.RoleId,
+                    CompanyId = CurrentCompanyId
+                };
+                await UserService.AssignUserRoleAsync(assignDto);
+            }
+
+            await HideModal();
+            await LoadData();
+            if (userGrid != null)
+                await userGrid.RefreshDataAsync();
+        }
+        catch(Exception ex)
+        {
+            errorMessage = $"Unable to save user: {ex.Message}";
+        }
+        finally
+        {
+            isSaveBtnLoading = false;
+        }
+    }
+
+    private async Task DeleteUser(int id)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", "Delete this user?"))
+            return;
+        
+        try
+        {
+            await UserService.DeleteUserAsync(id);
+            await LoadData();
+            if (userGrid != null)
+                await userGrid.RefreshDataAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Unable to delete user: {ex.Message}";
+        }
+    }
+
+    private async Task HideModal() => await modal.HideAsync();
+
+
+    private async Task ValidateAllFieldsAsync()
+    {
+        await ValidateFirstName();
+        await ValidateLastName();
+        await ValidateUsername();
+        await ValidateEmail();
+        await ValidatePhone();
+        await ValidateRole();
+
+        // Validate password only when:
+        //  - Adding a new user (Id == 0), OR
+        //  - Editing and 'Reset Password?' is checked by an authorised user
+        bool shouldValidatePassword = UsersModel.Id == 0 || (UsersModel.ResetPassword && CanResetPassword());
+        if (shouldValidatePassword)
+        {
+            await ValidatePassword();
+            await ValidateConfirmPassword();
+        }
+        else
+        {
+            // Clear any stale password errors so they don't block save
+            messageStore.Clear(() => UsersModel.Password);
+            messageStore.Clear(() => UsersModel.ConfirmPassword);
+            editContext.NotifyValidationStateChanged();
+        }
+    }
+
+    private async Task ValidateFirstName()
+    {
+        messageStore.Clear(() => UsersModel.FirstName);
+        var firstName = UsersModel.FirstName?.Trim();
+
+        if (string.IsNullOrWhiteSpace(firstName))
+        {
+            messageStore.Add(() => UsersModel.FirstName, "First name is required.");
+        }
+        else if (!firstName.All(char.IsAsciiLetter))
+        {
+            messageStore.Add(() => UsersModel.FirstName, "First name only allow Character.");
+        }
+        editContext.NotifyValidationStateChanged();
+        await Task.CompletedTask;
+    }
+
+    private async Task ValidateLastName()
+    {
+        messageStore.Clear(() => UsersModel.LastName);
+        var lastName = UsersModel.LastName?.Trim();
+        if (string.IsNullOrWhiteSpace(lastName))
+        {
+            messageStore.Add(() => UsersModel.LastName, "Last name is required.");
+        }
+        else if (!lastName.All(char.IsAsciiLetter))
+        {
+            messageStore.Add(() => UsersModel.LastName, "Last name only allow Character.");
+        }
+
+        editContext.NotifyValidationStateChanged();
+        await Task.CompletedTask;
+    }
+
+    private async Task ValidateUsername()
+    {
+        messageStore.Clear(() => UsersModel.UserName);
+        if (string.IsNullOrWhiteSpace(UsersModel.UserName))
+            messageStore.Add(() => UsersModel.UserName, "Username is required.");
+        editContext.NotifyValidationStateChanged();
+        await Task.CompletedTask;
+    }
+
+    private async Task ValidateEmail()
+    {
+        messageStore.Clear(() => UsersModel.Email);
+        if (string.IsNullOrWhiteSpace(UsersModel.Email))
+        {
+            messageStore.Add(() => UsersModel.Email, "Email is required.");
+        }
+        else if (!IsValidEmailFormat(UsersModel.Email))
+        {
+            messageStore.Add(() => UsersModel.Email, "Email format is invalid.");
+        }
+        editContext.NotifyValidationStateChanged();
+        await Task.CompletedTask;
+    }
+
+    private async Task ValidatePhone()
+    {
+        messageStore.Clear(() => UsersModel.ContactNo);
+        if (string.IsNullOrWhiteSpace(UsersModel.ContactNo))
+        {
+            messageStore.Add(() => UsersModel.ContactNo, "Phone is required.");
+        }
+        else if (!UsersModel.ContactNo.All(char.IsDigit))
+        {
+            messageStore.Add(() => UsersModel.ContactNo, "Phone only allow digits.");
+        }
+        else if (UsersModel.ContactNo?.Length != 10)
+        {
+            messageStore.Add(() => UsersModel.ContactNo, "Phone Number must be 10 digit");
+        }
+        editContext.NotifyValidationStateChanged();
+        await Task.CompletedTask;
+    }
+
+    private async Task ValidateRole()
+    {
+        messageStore.Clear(() => UsersModel.RoleId);
+        if (UsersModel.RoleId == 0)
+            messageStore.Add(() => UsersModel.RoleId, "Please select role.");
+        editContext.NotifyValidationStateChanged();
+        await Task.CompletedTask;
+    }
+
+    private async Task ValidatePassword()
+    {
+        messageStore.Clear(() => UsersModel.Password);
+        if (string.IsNullOrWhiteSpace(UsersModel.Password))
+            messageStore.Add(() => UsersModel.Password, "Password is required.");
+        editContext.NotifyValidationStateChanged();
+        await Task.CompletedTask;
+    }
+
+    private async Task ValidateConfirmPassword()
+    {
+        messageStore.Clear(() => UsersModel.ConfirmPassword);
+
+        if (string.IsNullOrWhiteSpace(UsersModel.ConfirmPassword))
+        {
+            messageStore.Add(() => UsersModel.ConfirmPassword, "Confirm password is required.");
+        }
+        else if (!string.IsNullOrWhiteSpace(UsersModel.Password) &&
+                 UsersModel.Password != UsersModel.ConfirmPassword)
+        {
+            messageStore.Add(() => UsersModel.ConfirmPassword, "Passwords do not match.");
+        }
+
+        editContext.NotifyValidationStateChanged();
+        await Task.CompletedTask;
+    }
+
+    private bool IsValidEmailFormat(string email)
+    {
+        try
+        {
+            email = email.Trim();
+            var addr = new System.Net.Mail.MailAddress(email);
+            return addr.Address.Equals(email, StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private async Task<bool> ValidateDuplicate(int? id, string userName, string phone, string email)
+    {
+        errorMessage = string.Empty;
+        var userNameExists = users.Any(u => u.UserName.Equals(userName, StringComparison.OrdinalIgnoreCase) && u.Id != id);
+        var phoneExists = users.Any(u => u.ContactNo.Equals(phone, StringComparison.OrdinalIgnoreCase) && u.Id != id);
+        var emailExists = users.Any(u => u.Email.Equals(email, StringComparison.OrdinalIgnoreCase) && u.Id != id);
+
+        if (userNameExists || phoneExists || emailExists)
+        {
+            string userNameError = userNameExists ? "Username " : string.Empty;
+            string phoneError = phoneExists ? "Phone " : string.Empty;
+            string emailError = emailExists ? "Email " : string.Empty;
+            errorMessage = userNameError + " " + phoneError + " " + emailError + " Already Exist";
+            await Task.CompletedTask;
+            return false;
+        }
+        await Task.CompletedTask;
+        return true;
+    }
+    private async Task TogglePasswordVisibility()
+    {
+        showPassword = !showPassword;
+        await Task.CompletedTask;
+    }
+    private async Task ToggleConformPasswordVisibility()
+    {
+        showConformPassword = !showConformPassword;
+        await Task.CompletedTask;
+    }
+
+    private async Task HandleFirstNameChange(ChangeEventArgs e)
+    {
+        UsersModel.FirstName = e.Value?.ToString() ?? "";
+        await ValidateFirstName();
+    }
+    private async Task HandleLastNameChange(ChangeEventArgs e)
+    {
+        UsersModel.LastName = e.Value?.ToString() ?? "";
+        await ValidateLastName();
+    }
+    private async Task HandleUsernameChange(ChangeEventArgs e)
+    {
+        UsersModel.UserName = e.Value?.ToString() ?? "";
+        await ValidateUsername();
+    }
+    private async Task HandleEmailChange(ChangeEventArgs e)
+    {
+        UsersModel.Email = e.Value?.ToString() ?? "";
+        await ValidateEmail();
+    }
+    private async Task HandlePhoneChange(ChangeEventArgs e)
+    {
+        UsersModel.ContactNo = e.Value?.ToString() ?? "";
+        await ValidatePhone();
+    }
+    private async Task HandleRole((int? roleId, string name) selecteded)
+    {
+        UsersModel.RoleId = selecteded.roleId ?? 0;
+        await ValidateRole();
+    }
+    private async Task HandlePasswordChange(ChangeEventArgs e)
+    {
+        UsersModel.Password = e.Value?.ToString();
+        if (UsersModel.Id == 0 || UsersModel.ResetPassword)
+            await ValidatePassword();
+    }
+    private async Task HandleConfirmPasswordChange(ChangeEventArgs e)
+    {
+        UsersModel.ConfirmPassword = e.Value?.ToString();
+        if (UsersModel.Id == 0 || UsersModel.ResetPassword)
+            await ValidateConfirmPassword();
+    }
+
+    /// <summary>Handles the 'Reset Password?' toggle — clears fields and validation on uncheck.</summary>
+    private async Task HandleResetPasswordToggle(ChangeEventArgs e)
+    {
+        UsersModel.ResetPassword = (bool)(e.Value ?? false);
+        UsersModel.Password = null;
+        UsersModel.ConfirmPassword = null;
+        showPassword = false;
+        showConformPassword = false;
+        // Clear password validation messages
+        messageStore.Clear(() => UsersModel.Password);
+        messageStore.Clear(() => UsersModel.ConfirmPassword);
+        editContext.NotifyValidationStateChanged();
+        await Task.CompletedTask;
+    }
+
+    private void GoHome()
+    {
+        NavigationManager.NavigateTo("/");
+    }
+}

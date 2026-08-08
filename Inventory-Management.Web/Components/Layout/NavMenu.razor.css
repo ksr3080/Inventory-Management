@@ -1,0 +1,79 @@
+.top-navbar {
+    height: 3.5rem;
+    padding: 0 1rem;
+}
+
+.brand-badge {
+    width: 2rem;
+    height: 2rem;
+    border-radius: 50%;
+    border: 1px solid #ddd;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    color: #333;
+}
+
+.navbar-nav .nav-link {
+    color: #555 !important;
+    font-weight: 500;
+    padding: 0.5rem 0.9rem !important;
+}
+
+    .navbar-nav .nav-link:hover, .navbar-nav .nav-link.active {
+        color: #000 !important;
+    }
+/* Buttons styled as nav-links / dropdown-items need their button chrome stripped */
+
+.nav-link.btn.btn-link, .dropdown-item.btn, button.dropdown-item {
+    border: none;
+    background: none;
+    box-shadow: none;
+    text-align: left;
+    width: 100%;
+}
+
+button.dropdown-toggle {
+    display: flex;
+    align-items: center;
+}
+/* Since we're not using Bootstrap's JS anymore, dropdowns are shown purely via the "show" class we add manually */
+
+.dropdown-menu {
+    display: none;
+    font-size: 0.9rem;
+}
+
+    .dropdown-menu.show {
+        display: block;
+    }
+/* Nested (multi-level) dropdown support */
+
+.dropdown-submenu {
+    position: relative;
+}
+
+    .dropdown-submenu > .dropdown-menu {
+        top: 0;
+        left: 100%;
+        margin-top: -1px;
+    }
+
+    .dropdown-submenu > button::after {
+        content: "";
+        float: right;
+    }
+/* Invisible full-screen layer to catch outside clicks and close open menus */
+
+.dropdown-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1030; /* below Bootstrap's .dropdown-menu (1000) is fine since menus sit inside nav which stacks above via z-index on li.show */
+    background: transparent;
+}
+
+.nav-item.dropdown.show, .dropdown-submenu.show {
+    position: relative;
+    z-index: 1040;
+}

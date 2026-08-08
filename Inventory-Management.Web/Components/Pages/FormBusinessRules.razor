@@ -1,0 +1,353 @@
+@page "/form-business-rules"
+@rendermode InteractiveServer
+
+@using System.ComponentModel.DataAnnotations
+@using Inventory_Management.Interface
+@using Inventory_Management.Service
+@using Inventory_Management.Shared.DTOs.FormBusinessRules
+@using Inventory_Management.Shared.DTOs.Forms
+@using Inventory_Management.Shared.Helper.FormAccessCode
+
+@inject IFormBusinessRulesService RuleService
+@inject IFormService FormService
+@inject IJSRuntime JS
+@inject NavigationManager NavigationManager
+@inject SessionContext SessionContext
+
+<PageTitle>Form Business Rules</PageTitle>
+
+@if (!CanView())
+{
+    <div class="container-fluid mt-5">
+        <div class="row justify-content-center">
+            <div class="col-md-6">
+                <div class="alert alert-danger text-center shadow-sm">
+                    <h4>Access Denied</h4>
+                    <p>You don't have permission to access this page.</p>
+                    <button class="btn btn-primary" @onclick='() => NavigationManager.NavigateTo("/home")'>Go to Home</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+else
+{
+    <div class="container-fluid mt-4">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+                <h2><Icon Name="IconName.Sliders" /> Form Business Rules</h2>
+                <p class="text-muted">Manage business rules associated with application forms.</p>
+            </div>
+            <div class="d-flex gap-2">
+                <button class="btn btn-outline-primary" @onclick="LoadDataAsync" disabled="@isLoading">Refresh</button>
+                <span title="@(!CanCreate() ? "You do not have permission to perform this action." : "")">
+                    <Button Color="ButtonColor.Primary" @onclick="ShowAddModal" Disabled="@(!CanCreate())">
+                        <Icon Name="IconName.Plus" /> Add New Rule
+                    </Button>
+                </span>
+            </div>
+        </div>
+
+    @if (!string.IsNullOrWhiteSpace(successMessage))
+    {
+        <div class="alert alert-success alert-dismissible fade show">
+            @successMessage
+            <button type="button" class="btn-close" @onclick="@(() => successMessage = null)"></button>
+        </div>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show">
+            @errorMessage
+            <button type="button" class="btn-close" @onclick="@(() => errorMessage = null)"></button>
+        </div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="text-center p-5">
+            <Spinner Type="SpinnerType.Border" />
+            <p class="mt-2">Loading business rules...</p>
+        </div>
+    }
+    else
+    {
+        <Grid TItem="GetFormBusinessRulesDTO"
+              Class="table table-hover table-bordered table-striped"
+              Data="rulesList"
+              AllowPaging="true"
+              PageSize="10"
+              Responsive="true"
+              AllowFiltering="true"
+              AllowSorting="true"
+              @ref="grid">
+
+            <GridColumn TItem="GetFormBusinessRulesDTO" HeaderText="No" Filterable="false">
+                @(rulesList.IndexOf(context) + 1)
+            </GridColumn>
+
+            <GridColumn TItem="GetFormBusinessRulesDTO" HeaderText="Form" PropertyName="FormId" SortString="FormId" SortKeySelector="item => item.FormId" FilterTextboxWidth="80">
+                @(formLookup.TryGetValue(context.FormId, out var formName) ? formName : $"Form #{context.FormId}")
+            </GridColumn>
+
+            <GridColumn TItem="GetFormBusinessRulesDTO" HeaderText="Rule Name" PropertyName="Rules" SortString="Rules" SortKeySelector="item => item.Rules" FilterTextboxWidth="120">
+                @context.Rules
+            </GridColumn>
+
+            <GridColumn TItem="GetFormBusinessRulesDTO" HeaderText="Rule Code" PropertyName="RulesCode" SortString="RulesCode" SortKeySelector="item => item.RulesCode" FilterTextboxWidth="100">
+                <code>@context.RulesCode</code>
+            </GridColumn>
+
+            <GridColumn TItem="GetFormBusinessRulesDTO" HeaderText="Rule Value" PropertyName="RulesValue" SortString="RulesValue" SortKeySelector="item => item.RulesValue" Sortable="false">
+                @if (context.RulesValue)
+                {
+                    <Badge Color="BadgeColor.Success">True</Badge>
+                }
+                else
+                {
+                    <Badge Color="BadgeColor.Secondary">False</Badge>
+                }
+            </GridColumn>
+
+            <GridColumn TItem="GetFormBusinessRulesDTO" HeaderText="Actions" Filterable="false">
+                <div class="d-flex gap-1 justify-content-start">
+                    <span title="@(!CanEdit() ? "You do not have permission to perform this action." : "")">
+                        <Button Class="text-nowrap" Color="ButtonColor.Warning" Size="ButtonSize.Small"
+                                Disabled="@(!CanEdit())"
+                                @onclick="() => ShowEditModal(context)">
+                            <Icon Name="IconName.PencilSquare" /> Edit
+                        </Button>
+                    </span>
+                    <span title="@(!CanDelete() ? "You do not have permission to perform this action." : "")">
+                        <LoadingButton Class="text-nowrap" Color="ButtonColor.Danger" Size="ButtonSize.Small"
+                                       Disabled="@(!CanDelete())"
+                                       OnClick="() => DeleteRuleAsync(context.Id)">
+                            <Icon Name="IconName.Trash" /> Delete
+                        </LoadingButton>
+                    </span>
+                </div>
+            </GridColumn>
+        </Grid>
+    }
+</div>
+
+<!-- MODAL -->
+<Modal @ref="modal" Title="@modalTitle" Size="ModalSize.Regular" UseStaticBackdrop>
+    <BodyTemplate>
+        <EditForm Model="@ruleForm" OnValidSubmit="SaveRuleAsync">
+            <DataAnnotationsValidator />
+
+            <div class="mb-3">
+                <label class="form-label">Form<span class="text-danger">*</span></label>
+                <select class="form-select" @bind="ruleForm.FormId">
+                    <option value="0">-- Select Form --</option>
+                    @foreach (var form in forms)
+                    {
+                        <option value="@form.Id">@form.FormName</option>
+                    }
+                </select>
+                <ValidationMessage For="@(() => ruleForm.FormId)" />
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Rule Name<span class="text-danger">*</span></label>
+                <InputText class="form-control" placeholder="Rule Name" @bind-Value="ruleForm.Rules" />
+                <ValidationMessage For="@(() => ruleForm.Rules)" />
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Rule Code<span class="text-danger">*</span></label>
+                <InputText class="form-control" placeholder="e.g. CAN_EXPORT" @bind-Value="ruleForm.RulesCode" />
+                <ValidationMessage For="@(() => ruleForm.RulesCode)" />
+            </div>
+
+            <div class="mb-3 form-check">
+                <InputCheckbox class="form-check-input" id="rulesValueCheck" @bind-Value="ruleForm.RulesValue" />
+                <label class="form-check-label" for="rulesValueCheck">
+                    Rule Value (Active Status / Permission Enabled)
+                </label>
+            </div>
+
+            <div class="text-end mt-4">
+                <Button Color="ButtonColor.Secondary" @onclick="HideModal">Cancel</Button>
+                <Button Color="ButtonColor.Primary" Type="ButtonType.Submit" Disabled="@isSubmitting">
+                    @(isSubmitting ? "Saving..." : "Save Rule")
+                </Button>
+            </div>
+        </EditForm>
+    </BodyTemplate>
+</Modal>
+}
+
+@code {
+    private bool CanView() => SessionContext.HasPermission(FormAccessCode.FORMBUSINESSRULES, Form_BusinessRules.VIEW);
+    private bool CanCreate() => SessionContext.HasPermission(FormAccessCode.FORMBUSINESSRULES, Form_BusinessRules.ADD);
+    private bool CanEdit() => SessionContext.HasPermission(FormAccessCode.FORMBUSINESSRULES, Form_BusinessRules.EDIT);
+    private bool CanDelete() => SessionContext.HasPermission(FormAccessCode.FORMBUSINESSRULES, Form_BusinessRules.DELETE);
+    private Modal modal = default!;
+    private Grid<GetFormBusinessRulesDTO> grid = default!;
+    private List<GetFormBusinessRulesDTO> rulesList = new();
+    private List<GetFormDTO> forms = new();
+    private Dictionary<int, string> formLookup = new();
+
+    private RuleFormModel ruleForm = new();
+    private bool isLoading = true;
+    private bool isSubmitting;
+    private bool isEditing;
+    private int editingRuleId;
+    private string modalTitle = "Add Form Business Rule";
+    private string? successMessage;
+    private string? errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadFormsAsync();
+        await LoadDataAsync();
+    }
+
+    private async Task LoadFormsAsync()
+    {
+        try
+        {
+            var result = await FormService.GetFormsAsync();
+            forms = result.ToList();
+            formLookup = forms.ToDictionary(f => f.Id, f => f.FormName);
+        }
+        catch
+        {
+            forms = [];
+        }
+    }
+
+    private async Task LoadDataAsync()
+    {
+        try
+        {
+            isLoading = true;
+            successMessage = null;
+            errorMessage = null;
+            var result = await RuleService.GetFormBusinessRulesAsync();
+            rulesList = result.ToList();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Unable to load business rules: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task ShowAddModal()
+    {
+        isEditing = false;
+        editingRuleId = 0;
+        modalTitle = "Add Form Business Rule";
+        ruleForm = new RuleFormModel { RulesValue = true };
+        await modal.ShowAsync();
+    }
+
+    private async Task ShowEditModal(GetFormBusinessRulesDTO dto)
+    {
+        isEditing = true;
+        editingRuleId = dto.Id;
+        modalTitle = "Edit Form Business Rule";
+        ruleForm = new RuleFormModel
+        {
+            FormId = dto.FormId,
+            RulesCode = dto.RulesCode,
+            Rules = dto.Rules,
+            RulesValue = dto.RulesValue
+        };
+        await modal.ShowAsync();
+    }
+
+    private async Task SaveRuleAsync()
+    {
+        try
+        {
+            isSubmitting = true;
+            successMessage = null;
+            errorMessage = null;
+
+            if (isEditing)
+            {
+                var updateDto = new UpdateFormBusinessRulesDTO
+                {
+                    Id = editingRuleId,
+                    FormId = ruleForm.FormId,
+                    RulesCode = ruleForm.RulesCode,
+                    Rules = ruleForm.Rules,
+                    RulesValue = ruleForm.RulesValue,
+                    UpdatedBy = SessionContext.UserId
+                };
+                await RuleService.UpdateFormBusinessRuleAsync(updateDto);
+                successMessage = "Business rule updated successfully.";
+            }
+            else
+            {
+                var createDto = new CreateFormBusinessRulesDTO
+                {
+                    FormId = ruleForm.FormId,
+                    RulesCode = ruleForm.RulesCode,
+                    Rules = ruleForm.Rules,
+                    RulesValue = ruleForm.RulesValue,
+                    CreatedBy = SessionContext.UserId
+                };
+                await RuleService.CreateFormBusinessRuleAsync(createDto);
+                successMessage = "Business rule created successfully.";
+            }
+
+            await modal.HideAsync();
+            await LoadDataAsync();
+            if (grid != null)
+                await grid.RefreshDataAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Unable to save business rule: {ex.Message}";
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private async Task DeleteRuleAsync(int id)
+    {
+        bool confirmed = await JS.InvokeAsync<bool>("confirm", "Delete this business rule?");
+        if (!confirmed) return;
+
+        try
+        {
+            await RuleService.DeleteFormBusinessRuleAsync(id);
+            successMessage = "Business rule deleted successfully.";
+            await LoadDataAsync();
+            if (grid != null)
+                await grid.RefreshDataAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Unable to delete rule: {ex.Message}";
+        }
+    }
+
+    private async Task HideModal() => await modal.HideAsync();
+
+    private class RuleFormModel
+    {
+        [Required(ErrorMessage = "Please select a form.")]
+        [Range(1, int.MaxValue, ErrorMessage = "Please select a valid form.")]
+        public int FormId { get; set; }
+
+        [Required(ErrorMessage = "Rule code is required.")]
+        public string? RulesCode { get; set; }
+
+        [Required(ErrorMessage = "Rule is required.")]
+        public string? Rules { get; set; }
+
+        public bool RulesValue { get; set; } = true;
+    }
+}
