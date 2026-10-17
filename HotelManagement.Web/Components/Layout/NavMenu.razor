@@ -1,0 +1,212 @@
+@using HotelManagement.Interface
+@using HotelManagement.Service
+@using HotelManagement.Shared.DTOs.Forms
+@using HotelManagement.Shared.Helper.FormAccessCode
+@inject IFormService FormService
+@inject SessionContext SessionContext
+@inject NavigationManager Navigation
+
+<nav class="navbar navbar-expand-lg navbar-light bg-white border-bottom top-navbar">
+    <div class="container-fluid">
+        <a class="navbar-brand d-flex align-items-center" href="/home">
+            <span class="brand-badge">A</span>
+        </a>
+
+        <button class="navbar-toggler" type="button" @onclick="ToggleNavbar">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+
+        <div class="collapse navbar-collapse @(isNavExpanded ? "show" : "")">
+            @if (isLoading)
+            {
+                <div class="d-flex align-items-center text-muted px-3">
+                    <Spinner Size="SpinnerSize.Small" class="me-2" /> Loading menu...
+                </div>
+            }
+            else if (Forms != null && Forms.Any())
+            {
+                <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+                    @RenderMenu(0, 0)
+                </ul>
+            }
+
+            <ul class="navbar-nav ms-auto align-items-lg-center">
+                <li class="nav-item dropdown @(isUserMenuOpen ? "show" : "")">
+                    <button type="button" class="nav-link dropdown-toggle btn btn-link d-flex align-items-center"
+                            @onclick="ToggleUserMenu">
+                        <i class="bi bi-person-circle me-1"></i>
+                        @(SessionContext.UserName?.ToUpper() ?? "USER")
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end @(isUserMenuOpen ? "show" : "")">
+                        <li>
+                            <button type="button" class="dropdown-item" @onclick="Logout">
+                                <i class="bi bi-box-arrow-right me-2"></i>Logout
+                            </button>
+                        </li>
+                    </ul>
+                </li>
+            </ul>
+        </div>
+    </div>
+</nav>
+
+@* Click-outside overlay: closes any open dropdown when clicking elsewhere *@
+@if (openDropdownId.HasValue || isUserMenuOpen)
+{
+    <div class="dropdown-backdrop" @onclick="CloseAllDropdowns"></div>
+}
+
+@code {
+    private List<GetFormDTO> Forms = new();
+    private bool isLoading = true;
+    private bool isNavExpanded = false;
+    private bool isUserMenuOpen = false;
+
+    // Tracks which single dropdown (at any level) is currently open.
+    // Using one nullable int keeps only one menu open at a time, like normal dropdown behavior.
+    private int? openDropdownId = null;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            isLoading = true;
+            var allForms = await FormService.GetFormsAsync();
+
+            var allowedIds = allForms
+                .Where(x => x.IsActive &&
+                            SessionContext.HasPermissionByFormId(x.Id, Form_BusinessRules.SHOWINMENU))
+                .Select(x => x.Id)
+                .ToHashSet();
+
+            bool HasAllowedAncestorChain(GetFormDTO form)
+            {
+                if (form.ParentId == null || form.ParentId == 0)
+                    return true;
+
+                if (!allowedIds.Contains(form.ParentId.Value))
+                    return false;
+
+                var parent = allForms.FirstOrDefault(f => f.Id == form.ParentId.Value);
+                return parent == null || HasAllowedAncestorChain(parent);
+            }
+
+            Forms = allForms
+                .Where(x => allowedIds.Contains(x.Id) && HasAllowedAncestorChain(x))
+                .OrderBy(x => x.DisplayIndex)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading forms in NavMenu: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void ToggleNavbar() => isNavExpanded = !isNavExpanded;
+
+    private void ToggleUserMenu()
+    {
+        isUserMenuOpen = !isUserMenuOpen;
+        openDropdownId = null;
+    }
+
+    private void ToggleDropdown(int id)
+    {
+        openDropdownId = openDropdownId == id ? null : id;
+        isUserMenuOpen = false;
+    }
+
+    private void CloseAllDropdowns()
+    {
+        openDropdownId = null;
+        isUserMenuOpen = false;
+    }
+
+    private async Task Logout()
+    {
+        await SessionContext.ClearAsync();
+        Navigation.NavigateTo("/", true);
+    }
+
+    // level 0 = top-level nav items, level 1+ = dropdown submenu items
+    private RenderFragment RenderMenu(int parentId, int level) => __builder =>
+    {
+        var levelItems = Forms
+            .Where(x => (x.ParentId ?? 0) == parentId)
+            .OrderBy(x => x.DisplayIndex)
+            .ToList();
+
+        foreach (var item in levelItems)
+        {
+            bool hasChildren = Forms.Any(x => x.ParentId == item.Id);
+            bool isOpen = openDropdownId == item.Id;
+
+            if (level == 0)
+            {
+                if (hasChildren)
+                {
+                    <li class="nav-item dropdown @(isOpen ? "show" : "")">
+                        <button type="button" class="nav-link dropdown-toggle btn btn-link"
+                                @onclick="() => ToggleDropdown(item.Id)">
+                            @if (GetIcon(item.MenuIconClass) is IconName icon)
+                            {
+                                <Icon Name="@icon" class="me-1" />
+                            }
+                            @item.FormName
+                        </button>
+                        <ul class="dropdown-menu @(isOpen ? "show" : "")">
+                            @RenderMenu(item.Id, level + 1)
+                        </ul>
+                    </li>
+                }
+                else
+                {
+                    <li class="nav-item">
+                        <NavLink class="nav-link" href="@item.FormUrl" Match="NavLinkMatch.All" @onclick="CloseAllDropdowns">
+                            @if (GetIcon(item.MenuIconClass) is IconName icon)
+                            {
+                                <Icon Name="@icon" class="me-1" />
+                            }
+                            @item.FormName
+                        </NavLink>
+                    </li>
+                }
+            }
+            else
+            {
+                if (hasChildren)
+                {
+                    <li class="dropdown-submenu dropend @(isOpen ? "show" : "")">
+                        <button type="button" class="dropdown-item dropdown-toggle"
+                                @onclick="() => ToggleDropdown(item.Id)" @onclick:stopPropagation="true">
+                            @item.FormName
+                        </button>
+                        <ul class="dropdown-menu @(isOpen ? "show" : "")">
+                            @RenderMenu(item.Id, level + 1)
+                        </ul>
+                    </li>
+                }
+                else
+                {
+                    <li>
+                        <NavLink class="dropdown-item" href="@item.FormUrl" Match="NavLinkMatch.All" @onclick="CloseAllDropdowns">
+                            @item.FormName
+                        </NavLink>
+                    </li>
+                }
+            }
+        }
+    };
+
+    private IconName? GetIcon(string icon)
+    {
+        if (string.IsNullOrWhiteSpace(icon))
+            return null;
+
+        return Enum.TryParse<IconName>(icon, out var result) ? result : null;
+    }
+}

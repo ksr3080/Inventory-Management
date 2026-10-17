@@ -1,0 +1,459 @@
+@page "/companies"
+@rendermode InteractiveServer
+
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.JSInterop
+@using HotelManagement.Interface
+@using HotelManagement.Service
+@using HotelManagement.Shared.DTOs.Company
+@using HotelManagement.Shared.Helper.FormAccessCode
+
+@inject ICompanyService CompanyService
+@inject IJSRuntime JS
+@inject SessionContext SessionContext
+@inject NavigationManager NavigationManager
+
+<PageTitle>Company</PageTitle>
+
+@if (!CanView())
+{
+    <div class="container-fluid mt-5">
+        <div class="row justify-content-center">
+            <div class="col-md-6">
+                <div class="alert alert-danger text-center shadow-sm">
+                    <h4>Access Denied</h4>
+                    <p>You don't have permission to access this page.</p>
+                    <button class="btn btn-primary" @onclick='() => NavigationManager.NavigateTo("/home")'>Go to Home</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+else
+{
+    <div class="container mt-4">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+                <h2>Company Management</h2>
+                <p class="text-muted"> Create, update and manage companies. </p>
+            </div>
+
+            <button class="btn btn-outline-primary" @onclick="LoadCompaniesAsync" disabled="@isLoading">Refresh</button>
+        </div>
+
+    @if (!string.IsNullOrWhiteSpace(successMessage))
+    {
+        <div class="alert alert-success">@successMessage</div>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="alert alert-danger"> @errorMessage </div>
+    }
+
+
+    <!-- FORM -->
+    <div class="row">
+        <div class="col-md-12">            
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <h5 class="mb-4">
+                        @(isEditing ? "Edit COmpany" : "Create New Company")
+                    </h5>
+
+                    <EditForm Model="@companyForm" OnValidSubmit="SaveCompanyAsync">
+                        <DataAnnotationsValidator />
+                        <div class="row">
+                            <div class="col-md-4 mb-3">
+                                <label>Name</label>
+                                <InputText class="form-control" @bind-Value="companyForm.Name" />
+                                <ValidationMessage For="@(() => companyForm.Name)" />
+                            </div>
+
+                            <div class="col-md-4 mb-3">
+                                <label>Email</label>
+                                <InputText class="form-control" @bind-Value="companyForm.Email" />
+                                <ValidationMessage For="@(() => companyForm.Email)" />
+                            </div>
+
+                            <div class="col-md-4 mb-3">
+                                <label>Phone No</label>
+                                <InputText class="form-control" @bind-Value="companyForm.PhoneNo" />
+                                <ValidationMessage For="@(() => companyForm.PhoneNo)" />
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-4 mb-3">
+                                <label>Address 1</label>
+                                <InputText class="form-control" @bind-Value="companyForm.Address1" />
+                                <ValidationMessage For="@(() => companyForm.Address1)" />
+                            </div>
+
+                            <div class="col-md-4 mb-3">
+                                <label>Address 2</label>
+                                <InputText class="form-control" @bind-Value="companyForm.Address2" />
+                            </div>
+
+                            <div class="col-md-4 mb-3">
+                                <label>State</label>
+                                <InputText class="form-control" @bind-Value="companyForm.State" />
+                                <ValidationMessage For="@(() => companyForm.State)" />
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-4 mb-3">
+                                <label>State Code</label>
+                                <InputText class="form-control" @bind-Value="companyForm.StateCode" />
+                                <ValidationMessage For="@(() => companyForm.StateCode)" />
+                            </div>
+
+                            <div class="col-md-4 mb-3">
+                                <label>City</label>
+                                <InputText class="form-control" @bind-Value="companyForm.City" />
+                                <ValidationMessage For="@(() => companyForm.City)" />
+                            </div>
+
+                            <div class="col-md-4 mb-3">
+                                <label>Pincode</label>
+                                <InputText class="form-control" @bind-Value="companyForm.Pincode" />
+                                <ValidationMessage For="@(() => companyForm.Pincode)" />
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-4 mb-3">
+                                <label>GST No</label>
+                                <InputText class="form-control" @bind-Value="companyForm.GSTNo" />
+                                <ValidationMessage For="@(() => companyForm.GSTNo)" />
+                            </div>
+
+                            <div class="col-md-4 mb-3">
+                                <label>Logo</label>
+                                <InputText class="form-control" @bind-Value="companyForm.Logo" />
+                            </div>
+
+                            @if (isEditing)
+                            {
+                                <button type="button" class="btn btn-secondary w-100 mt-2" @onclick="CancelEdit"> Cancel Edit </button>
+                            }
+                        </div>
+                        <div class="row mt-4">
+                            <div class="col-12 d-flex gap-2">
+
+                                <button type="submit" class="btn btn-primary" disabled="@isSubmitting">
+                                    @if (isSubmitting)
+                                    {
+                                        @(isEditing ? "Updating..." : "Saving...")
+                                    }
+                                    else
+                                    {
+                                        @(isEditing ? "Update Company" : "Add Company")
+                                    }
+                                </button>
+
+                                @if (isEditing)
+                                {
+                                    <button type="button" class="btn btn-secondary" @onclick="CancelEdit"> Cancel </button>
+                                }
+
+                            </div>
+                        </div>
+                    </EditForm>
+                </div>
+            </div>
+        </div>
+        <!-- USER TABLE -->
+        <div class="col-lg-8">
+            <div class="card shadow-sm">
+                <div class="card-header bg-white">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0"> Users </h5>
+                        <span class="badge bg-primary"> @companies.Count </span>
+                    </div>
+                </div>
+
+                <div class="card-body p-0">
+                    @if (isLoading)
+                    {
+                        <div class="text-center p-5">
+                            <div class="spinner-border"></div>
+                            <p class="mt-3"> Loading users... </p>
+                        </div>
+                    }
+                    else if (companies.Count == 0)
+                    {
+                        <div class="text-center p-5">No users found.</div>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Id</th>
+                                        <th>Company</th>
+                                        <th>Phone</th>
+                                        <th>Email</th>
+                                        <th>City</th>
+                                        <th>State</th>
+                                        <th>GST No</th>
+                                        <th>Created</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (GetCompanyDTO company in companies)
+                                    {
+                                        <tr>
+                                            <td>@company.Id</td>
+                                            <td>@company.Name</td>
+                                            <td>@company.PhoneNo</td>
+                                            <td>@company.Email</td>
+                                            <td>@company.City</td>
+                                            <td>@company.State</td>
+                                            <td>@company.GSTNo</td>
+                                            <td>@company.CreatedOn</td>
+                                            <td>
+                                                <span title="@(!CanEdit() ? "You do not have permission to perform this action." : "")">
+                                                    <button class="btn btn-sm btn-warning me-2"
+                                                            disabled="@(!CanEdit())"
+                                                            @onclick="() => StartEdit(company)">Edit</button>
+                                                </span>
+                                                <span title="@(!CanDelete() ? "You do not have permission to perform this action." : "")">
+                                                    <button class="btn btn-sm btn-danger"
+                                                            disabled="@(!CanDelete() || deletingCompanyId == company.Id)"
+                                                            @onclick="() => DeleteCompanyAsync(company)">
+                                                        @(deletingCompanyId == company.Id ? "Deleting..." : "Delete")
+                                                    </button>
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+
+}
+
+@code {
+    private bool CanView() => SessionContext.HasPermission(FormAccessCode.COMPANY, Form_BusinessRules.VIEW);
+    private bool CanCreate() => SessionContext.HasPermission(FormAccessCode.COMPANY, Form_BusinessRules.ADD);
+    private bool CanEdit() => SessionContext.HasPermission(FormAccessCode.COMPANY, Form_BusinessRules.EDIT);
+    private bool CanDelete() => SessionContext.HasPermission(FormAccessCode.COMPANY, Form_BusinessRules.DELETE);
+
+    private CompanyFormModel companyForm = new();
+    private List<GetCompanyDTO> companies = [];
+    private bool isLoading;
+    private bool isSubmitting;
+    private bool isEditing;
+    private int editingCompanyId;
+    private int? deletingCompanyId;
+    private string? successMessage;
+    private string? errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCompaniesAsync();
+    }
+
+    private async Task LoadCompaniesAsync()
+    {
+        try
+        {
+            isLoading = true;
+            errorMessage = null;
+            IReadOnlyList<GetCompanyDTO> result = await CompanyService.GetCompanyAsync();
+            companies = result.ToList();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Unable to load users: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task SaveCompanyAsync()
+    {
+        try
+        {
+            isSubmitting = true;
+            successMessage = null;
+            errorMessage = null;
+
+            if (isEditing)
+            {
+                var updateCompany = new UpdateCompanyDTO
+                {
+                    Id = editingCompanyId,
+                    Name = companyForm.Name,
+                    Email = companyForm.Email,
+                    PhoneNo = companyForm.PhoneNo,
+                    Address1 = companyForm.Address1,
+                    Address2 = companyForm.Address2,
+                    State = companyForm.State,
+                    StateCode = companyForm.StateCode,
+                    City = companyForm.City,
+                    Pincode = companyForm.Pincode,
+                    GSTNo = companyForm.GSTNo,
+                    Logo = companyForm.Logo,
+                    UpdatedBy = SessionContext.UserId
+                };
+
+                await CompanyService.UpdateCompanyAsync(updateCompany);
+
+                successMessage = "Company updated successfully.";
+            }
+            else
+            {
+                var createCompany = new CreateCompanyDTO
+                {
+                    Name = companyForm.Name,
+                    Email = companyForm.Email,
+                    PhoneNo = companyForm.PhoneNo,
+                    Address1 = companyForm.Address1,
+                    Address2 = companyForm.Address2,
+                    State = companyForm.State,
+                    StateCode = companyForm.StateCode,
+                    City = companyForm.City,
+                    Pincode = companyForm.Pincode,
+                    GSTNo = companyForm.GSTNo,
+                    Logo = companyForm.Logo,
+                    CreatedBy = SessionContext.UserId
+                };
+
+                await CompanyService.CreateCompanyAsync(createCompany);
+
+                successMessage = "Company created successfully.";
+            }
+            ResetForm();
+            await LoadCompaniesAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Unable to save user: {ex.Message}";
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private void StartEdit(GetCompanyDTO company)
+    {
+        isEditing = true;
+        editingCompanyId = company.Id;
+        companyForm = new CompanyFormModel
+        {
+            Name = company.Name,
+            Email = company.Email,
+            PhoneNo = company.PhoneNo,
+            Address1 = company.Address1,
+            Address2 = company.Address2,
+            State = company.State,
+            StateCode = company.StateCode,
+            City = company.City,
+            Pincode = company.Pincode,
+            GSTNo = company.GSTNo,
+            Logo = company.Logo
+        };
+        successMessage = null;
+        errorMessage = null;
+    }
+
+    private void CancelEdit()
+    {
+        ResetForm();
+    }
+
+    private async Task DeleteCompanyAsync(GetCompanyDTO company)
+    {
+        bool confirmed = await JS.InvokeAsync<bool>(
+            "confirm",
+            $"Delete {company.Name} ?");
+
+        if (!confirmed)
+            return;
+
+        try
+        {
+            deletingCompanyId = company.Id;
+
+            await CompanyService.DeleteCompanyAsync(company.Id);
+
+            if (isEditing && editingCompanyId == company.Id)
+            {
+                ResetForm();
+            }
+
+            await LoadCompaniesAsync();
+
+            successMessage = "Company deleted successfully.";
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            deletingCompanyId = null;
+        }
+    }
+
+    private void ResetForm()
+    {
+        companyForm = new CompanyFormModel();
+
+        isEditing = false;
+
+        editingCompanyId = 0;
+    }
+
+    private class CompanyFormModel
+    {
+        [Required]
+        [StringLength(150)]
+        public string Name { get; set; } = string.Empty;
+
+        [Required]
+        [EmailAddress]
+        public string Email { get; set; } = string.Empty;
+
+        [Required]
+        [StringLength(15)]
+        public string PhoneNo { get; set; } = string.Empty;
+
+        [Required]
+        public string Address1 { get; set; } = string.Empty;
+
+        public string? Address2 { get; set; }
+
+        [Required]
+        public string State { get; set; } = string.Empty;
+
+        [Required]
+        public string StateCode { get; set; } = string.Empty;
+
+        [Required]
+        public string City { get; set; } = string.Empty;
+
+        [Required]
+        [RegularExpression(@"^\d{6}$", ErrorMessage = "Pincode must be 6 digits.")]
+        public string Pincode { get; set; } = string.Empty;
+
+        [Required]
+        [StringLength(15, MinimumLength = 15)]
+        public string GSTNo { get; set; } = string.Empty;
+
+        public string? Logo { get; set; }
+    }
+}
